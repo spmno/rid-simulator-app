@@ -5,15 +5,35 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{info, error};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use rumqttc::{AsyncClient, Event, MqttOptions, QoS};
+use rumqttc::{AsyncClient, Event, MqttOptions, QoS, Packet, Publish};
+use tauri::{AppHandle, Emitter};
+use crate::rid_simulator::RidSimulator;
+use crate::message::packet_message::PacketMessage;
+use crate::message::message::Message;
+use serde_json;
 
 // Global MQTT client state
 static MQTT_CLIENT: once_cell::sync::OnceCell<Arc<Mutex<Option<AsyncClient>>>> = once_cell::sync::OnceCell::new();
+static RID_SIMULATOR: once_cell::sync::OnceCell<Arc<Mutex<RidSimulator>>> = once_cell::sync::OnceCell::new();
+static APP_HANDLE: once_cell::sync::OnceCell<AppHandle> = once_cell::sync::OnceCell::new();
 static PORT: u16 = 443;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
-async fn connect_to_mqtt_server(host: String) -> Result<String, String> {
+async fn connect_to_mqtt_server(host: String, app_handle: tauri::AppHandle) -> Result<String, String> {
+    // Store app handle globally for later use
+    if APP_HANDLE.get().is_none() {
+        APP_HANDLE.set(app_handle.clone()).ok();
+    }
+
+    // Initialize RidSimulator singleton
+    if RID_SIMULATOR.get().is_none() {
+        let mut simulator = RidSimulator::new();
+        simulator.start_simulator();
+        let simulator_arc = Arc::new(Mutex::new(simulator));
+        RID_SIMULATOR.set(simulator_arc).ok();
+        info!("RidSimulator initialized");
+    }
 
     info!("Connecting to MQTT broker: {}, port: {}", host, PORT);
     // Configure MQTT options
@@ -39,6 +59,11 @@ async fn connect_to_mqtt_server(host: String) -> Result<String, String> {
             match eventloop.poll().await {
                 Ok(Event::Incoming(packet)) => {
                     info!("MQTT packet received: {:?}", packet);
+                    
+                    // Handle Publish packets
+                    if let Packet::Publish(publish) = packet {
+                        handle_publish_packet(publish).await;
+                    }
                 }
                 Ok(Event::Outgoing(packet)) => {
                     info!("MQTT packet sent: {:?}", packet);
@@ -74,6 +99,63 @@ async fn connect_to_mqtt_server(host: String) -> Result<String, String> {
     Err("MQTT客户端未初始化".to_string())
 }
 
+// Helper function to send log messages to frontend
+pub fn send_log_to_frontend(message: &str) {
+    if let Some(app_handle) = APP_HANDLE.get() {
+        let _ = app_handle.emit("log-message", message.to_string());
+    }
+}
+
+// Handle incoming Publish packets
+async fn handle_publish_packet(publish: Publish) {
+    let topic = publish.topic;
+    let payload = publish.payload;
+    
+    info!("Received message on topic: {}, payload size: {} bytes", topic, payload.len());
+    
+    // Send log message to frontend
+    send_log_to_frontend(&format!("收到MQTT消息: 主题={}, 大小={}字节", topic, payload.len()));
+    
+    // Parse JSON payload into PacketMessage
+    match serde_json::from_slice::<PacketMessage>(&payload) {
+        Ok(message) => {
+            info!("Successfully parsed PacketMessage from JSON");
+            
+            // Send log to frontend
+            send_log_to_frontend("成功解析PacketMessage数据");
+            
+            // Get the RidSimulator singleton and send RID
+            if let Some(simulator_arc) = RID_SIMULATOR.get() {
+                let simulator = simulator_arc.lock().await;
+                let ssid = message.get_ssid();
+                let encoded_data = message.encode();
+                
+                match simulator.build_and_send_rid(&ssid, encoded_data) {
+                    Ok(_) => {
+                        info!("Successfully sent RID for SSID: {}", ssid);
+                        send_log_to_frontend(&format!("成功发送RID数据包: SSID={}", ssid));
+                    }
+                    Err(e) => {
+                        error!("Failed to send RID: {}", e);
+                        send_log_to_frontend(&format!("发送RID失败: {}", e));
+                    }
+                }
+            } else {
+                error!("RidSimulator not initialized");
+                send_log_to_frontend("错误: RidSimulator未初始化");
+            }
+        }
+        Err(e) => {
+            error!("Failed to parse JSON payload into PacketMessage: {}", e);
+            // Log the payload for debugging
+            if let Ok(payload_str) = String::from_utf8(payload.to_vec()) {
+                error!("Payload content: {}", payload_str);
+                send_log_to_frontend(&format!("解析JSON失败: {} - 数据: {}", e, payload_str));
+            }
+        }
+    }
+}
+
 #[tauri::command]
 async fn disconnect_mqtt() -> Result<String, String> {
     info!("Disconnecting from MQTT broker");
@@ -95,6 +177,19 @@ async fn disconnect_mqtt() -> Result<String, String> {
     }
     
     Ok("未连接到MQTT服务器".to_string())
+}
+
+#[tauri::command]
+async fn add_log_from_rust(message: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    info!("Sending log message to frontend: {}", message);
+    
+    // Emit the log event to the frontend
+    if let Err(e) = app_handle.emit("log-message", message) {
+        error!("Failed to emit log message: {}", e);
+        return Err(format!("Failed to send log message: {}", e));
+    }
+    
+    Ok(())
 }
 
 fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
@@ -147,7 +242,7 @@ pub fn run() {
     
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![connect_to_mqtt_server, disconnect_mqtt])
+        .invoke_handler(tauri::generate_handler![connect_to_mqtt_server, disconnect_mqtt, add_log_from_rust])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

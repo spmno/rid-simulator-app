@@ -81,6 +81,16 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Listen for log messages from Rust
+  import('@tauri-apps/api/event').then(({ listen }) => {
+    listen('log-message', (event) => {
+      const message = event.payload as string;
+      addLog(message);
+    });
+  }).catch(error => {
+    console.error('Failed to set up Rust log listener:', error);
+  });
+
   // Add initial log
   addLog("系统初始化完成");
 });
