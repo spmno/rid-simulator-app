@@ -1,8 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 
-let greetInputEl: HTMLInputElement | null;
-let greetMsgEl: HTMLElement | null;
-
 // New elements for connection functionality
 let environmentSelectEl: HTMLSelectElement | null;
 let connectBtnEl: HTMLButtonElement | null;
@@ -42,17 +39,14 @@ async function handleConnect() {
   updateConnectionStatus(`正在连接 ${environmentName}...`, false);
   
   try {
-    // Here you would implement the actual connection logic
-    // For now, we'll simulate a connection attempt
+    const result = await invoke("connect_to_mqtt_server", {
+      host: selectedEnvironment
+    });
     
-    addLog(`连接到: ${selectedEnvironment}`);
-    
-    // Simulate connection delay
-    setTimeout(() => {
-      updateConnectionStatus(`已连接到 ${environmentName}`, true);
-      addLog(`成功连接到 ${environmentName}`);
-      addLog(`WebSocket地址: ${selectedEnvironment}`);
-    }, 1000);
+    updateConnectionStatus(`已连接到 ${environmentName}`, true);
+    addLog(result as string);
+    addLog(`MQTT服务器: ${selectedEnvironment}`);
+    addLog(`订阅主题: mx-lafs-simulation/filght-info-rid`);
     
   } catch (error) {
     updateConnectionStatus("连接失败", false);
@@ -61,29 +55,17 @@ async function handleConnect() {
 }
 
 // Handle disconnect
-function handleDisconnect() {
-  updateConnectionStatus("未连接", false);
-  addLog("已断开连接");
-}
-
-async function greet() {
-  if (greetMsgEl && greetInputEl) {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsgEl.textContent = await invoke("greet", {
-      name: greetInputEl.value,
-    });
+async function handleDisconnect() {
+  try {
+    const result = await invoke("disconnect_mqtt");
+    updateConnectionStatus("未连接", false);
+    addLog(result as string);
+  } catch (error) {
+    addLog(`断开连接失败: ${error}`);
   }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  // Initialize existing elements
-  greetInputEl = document.querySelector("#greet-input");
-  greetMsgEl = document.querySelector("#greet-msg");
-  document.querySelector("#greet-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    greet();
-  });
-
   // Initialize new connection elements
   environmentSelectEl = document.querySelector("#environment-select");
   connectBtnEl = document.querySelector("#connect-btn");
