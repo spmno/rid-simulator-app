@@ -43,7 +43,7 @@ async fn connect_to_mqtt_server(host: String, app_handle: tauri::AppHandle) -> R
     mqtt_options
         .set_credentials("rabbitmq", "x8I3RGgu4b9YEDPu")
         .set_transport(rumqttc::Transport::wss_with_default_config())
-        .set_keep_alive(std::time::Duration::from_secs(600))
+        .set_keep_alive(std::time::Duration::from_secs(30))
         .set_clean_session(true);
     
     // Create client and event loop
@@ -70,7 +70,9 @@ async fn connect_to_mqtt_server(host: String, app_handle: tauri::AppHandle) -> R
                 }
                 Err(e) => {
                     error!("MQTT error: {}", e);
-                    break;
+                    send_log_to_frontend(&format!("MQTT连接错误: {}", e));
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    continue;
                 }
             }
         }
