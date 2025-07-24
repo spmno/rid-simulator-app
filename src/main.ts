@@ -25,6 +25,11 @@ function updateConnectionStatus(status: string, connected: boolean) {
   if (connectionStatusEl) {
     connectionStatusEl.textContent = status;
     isConnected = connected;
+    
+    // Update button text based on connection state
+    if (connectBtnEl) {
+      connectBtnEl.textContent = connected ? "断开" : "连接";
+    }
   }
 }
 
@@ -89,6 +94,20 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }).catch(error => {
     console.error('Failed to set up Rust log listener:', error);
+  });
+
+  // Check initial connection status
+  import('@tauri-apps/api/core').then(({ invoke }) => {
+    invoke("get_connection_status").then((status) => {
+      const connected = status as boolean;
+      if (connected) {
+        updateConnectionStatus("已连接", true);
+      } else {
+        updateConnectionStatus("未连接", false);
+      }
+    }).catch(() => {
+      updateConnectionStatus("未连接", false);
+    });
   });
 
   // Add initial log
