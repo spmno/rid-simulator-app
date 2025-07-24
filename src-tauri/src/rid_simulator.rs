@@ -6,6 +6,7 @@ use tracing::{info, error};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::Utc;
+#[derive(Debug)]
 pub struct RidSimulator {
     wifi_devices: Vec<NetworkInterface>,
 }
