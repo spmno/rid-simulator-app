@@ -16,6 +16,18 @@ function addLog(message: string) {
     const logEntry = document.createElement('p');
     logEntry.textContent = `[${timestamp}] ${message}`;
     logDisplayEl.appendChild(logEntry);
+    
+    // Keep only the latest 50 messages
+    const maxMessages = 50;
+    const messages = logDisplayEl.children;
+    if (messages.length > maxMessages) {
+      // Remove oldest messages to keep only 100
+      const messagesToRemove = messages.length - maxMessages;
+      for (let i = 0; i < messagesToRemove; i++) {
+        logDisplayEl.removeChild(messages[0]);
+      }
+    }
+    
     logDisplayEl.scrollTop = logDisplayEl.scrollHeight;
   }
 }
