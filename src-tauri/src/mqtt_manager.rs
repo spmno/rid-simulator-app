@@ -135,6 +135,7 @@ impl MqttManager {
 
     async fn start_event_loop(&self, mut eventloop: EventLoop) -> JoinHandle<()> {
         let connection_status = self.connection_status.clone();
+        let client = self.client.clone();
         let rid_simulator = self.rid_simulator.clone();
         let app_handle = self.app_handle.clone();
 
