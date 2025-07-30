@@ -89,9 +89,9 @@ impl Message for PacketMessage {
         let rid_counter: u8 = RID_COUNTER.fetch_add(0x01, Ordering::SeqCst); // 序列号按802.11规范递增
 
         bytes.push(rid_counter);
-        bytes.push(self.protocol_version);
+        bytes.push(0xf1);
         
-        bytes.push(self.message_size);
+        bytes.push(0x19);
         bytes.push(self.message_quantity);
         
         // 编码子消息
