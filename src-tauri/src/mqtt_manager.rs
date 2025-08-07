@@ -222,7 +222,7 @@ impl MqttManager {
                 Self::send_log_to_frontend(app_handle.clone(), "成功解析PacketMessage数据").await;
 
                 if let Some(sim_arc) = rid_simulator.lock().await.as_ref() {
-                    let simulator = sim_arc.lock().await;
+                    let mut simulator = sim_arc.lock().await;
                     let ssid = message.get_ssid();
                     let encoded_data = message.encode();
 

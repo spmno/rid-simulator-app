@@ -9,7 +9,7 @@ use chrono::Utc;
 #[derive(Debug)]
 pub struct RidSimulator {
     wifi_devices: Vec<NetworkInterface>,
-    cached_mac: Option<MacAddress>,
+    current_device: usize
 }
 
 static SEQ_COUNTER: AtomicU16 = AtomicU16::new(0);
@@ -41,7 +41,7 @@ impl RidSimulator {
     pub fn new() -> Self {
         RidSimulator {
             wifi_devices: Vec::new(),
-            cached_mac: None,
+            current_device: 0,
         }
     }
 
@@ -65,18 +65,15 @@ impl RidSimulator {
         if self.wifi_devices.is_empty() {
             panic!("No WiFi devices found");
         }
-        
-        // Cache the MAC address during initialization
-        self.cached_mac = Some(self.get_wifi_mac_from_device());
         info!("device counter: {}", self.wifi_devices.len());
-        info!("cached mac address: {:?}", self.cached_mac.unwrap());
     }
 
-    pub fn build_and_send_rid(&self, ssid: &str, data: Vec<u8>) -> Result<String, String> {
+    pub fn build_and_send_rid(&mut self, ssid: &str, data: Vec<u8>) -> Result<String, String> {
         let radiotap_bytes = self.build_radiotap_header();
         let beacon_frame = self.build_rid_beacon(ssid, data.as_slice());
         let full_frame = [radiotap_bytes, beacon_frame].concat();
         self.send_beacon(&full_frame)?;  // 添加错误传播
+        self.next_device();
         info!("beacon frame: {:?}", full_frame);
         Ok("OK".to_string())  // 修改返回Result
     }
@@ -138,7 +135,7 @@ impl RidSimulator {
             .unwrap()
             .as_micros() as u64; // 动态时间戳[1](@ref)
 
-        let local_mac = self.get_local_wifi_mac();
+        let local_mac = MacAddress(self.wifi_devices[self.current_device].mac.unwrap().octets());
         
         let header = ManagementHeader {
             frame_control: FrameControl {
@@ -189,30 +186,18 @@ impl RidSimulator {
         beacon.encode()
     }
 
-    // 获取本地WiFi设备的MAC地址（使用缓存值）
-    fn get_local_wifi_mac(&self) -> MacAddress {
-        self.cached_mac.expect("MAC address not initialized")
-    }
-
-    // 从设备获取MAC地址（仅初始化时使用）
-    fn get_wifi_mac_from_device(&self) -> MacAddress {
-        if self.wifi_devices.is_empty() {
-            panic!("No WiFi devices available");
+    fn next_device(&mut self) {
+        info!("current device:{}", self.current_device);
+        if self.current_device == self.wifi_devices.len() -1 {
+            self.current_device = 0;
+        } else {
+            self.current_device = self.current_device + 1;
         }
-        
-        let device = &self.wifi_devices[0];
-        match device.mac {
-            Some(mac) => MacAddress([mac.0, mac.1, mac.2, mac.3, mac.4, mac.5]),
-            None => {
-                error!("Failed to get MAC address from device {}", device.name);
-                // 回退到硬编码的MAC地址作为最后手段
-                MacAddress([0x00, 0xE0, 0x4B, 0xD3, 0xDE, 0xD6])
-            }
-        }
+        info!("next device:{}", self.current_device);
     }
 
     pub fn send_beacon(&self, beacon_data: &[u8]) -> Result<(), String> {
-        match pnet::datalink::channel(&self.wifi_devices[0], Default::default()) {
+        match pnet::datalink::channel(&self.wifi_devices[self.current_device], Default::default()) {
             Ok(Channel::Ethernet(mut tx, _rx)) => {
                 if let Some(_) = tx.send_to(beacon_data, None) {
                     info!("send rid.");
